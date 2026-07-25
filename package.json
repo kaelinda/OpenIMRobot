@@ -21,7 +21,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo:connectivity": "npm run build && node examples/connectivity-demo.mjs"
   },
   "keywords": [
     "bot",

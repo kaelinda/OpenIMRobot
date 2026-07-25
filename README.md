@@ -74,6 +74,24 @@ await manager.sendText("feishu-alert", "_", "服务恢复正常");
 await manager.startAll(); // 启动 Telegram 长轮询
 ```
 
+## 连通性 Demo
+
+`examples/connectivity-demo.mjs` 提供了一个开箱即用的最小 Demo：读取环境变量中已配置的平台凭证，
+向每个平台各发送一条测试文本消息，用于验证本工具与真实机器人后端之间的网络连通性和鉴权是否正常。
+未设置对应环境变量的平台会被自动跳过。
+
+```bash
+# 按需设置任意一个或多个平台的凭证
+export FEISHU_WEBHOOK_URL="https://open.feishu.cn/open-apis/bot/v2/hook/xxx"
+export DINGTALK_WEBHOOK_URL="https://oapi.dingtalk.com/robot/send?access_token=xxx"
+export WECOM_WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+export TELEGRAM_BOT_TOKEN="xxx" TELEGRAM_CHAT_ID="xxx"
+
+npm run demo:connectivity
+```
+
+每个平台会输出 `✅ <platform>: 发送成功` 或 `❌ <platform>: 发送失败 - <原因>`；任一平台失败时进程以非 0 退出码结束。
+
 ## 开发
 
 ```bash
