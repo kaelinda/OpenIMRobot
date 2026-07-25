@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
+import type { AdapterCapabilities } from "../../types.js";
 
 export interface DingTalkCustomBotOptions {
   /** 群设置中添加自定义机器人后获得的 Webhook 地址（含 access_token 参数） */
@@ -21,6 +22,13 @@ interface DingTalkWebhookResponse {
  */
 export class DingTalkCustomBotAdapter extends BaseBotAdapter {
   readonly platform = "dingtalk" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: false,
+    proactiveSend: true,
+    interactiveCards: false,
+    markdown: true,
+    receivesMessages: false, // Webhook 型自定义机器人仅支持单向推送
+  };
 
   constructor(private readonly options: DingTalkCustomBotOptions) {
     super();

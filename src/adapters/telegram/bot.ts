@@ -1,7 +1,7 @@
 import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
-import type { IncomingMessage } from "../../types.js";
+import type { AdapterCapabilities, IncomingMessage } from "../../types.js";
 
 export interface TelegramBotOptions {
   /** BotFather 签发的 Bot Token */
@@ -34,6 +34,13 @@ interface TelegramUpdate {
  */
 export class TelegramBotAdapter extends BaseBotAdapter {
   readonly platform = "telegram" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: true, // 支持 reply_to_message_id
+    proactiveSend: true,
+    interactiveCards: false,
+    markdown: false, // 未设置 parse_mode，当前按纯文本发送
+    receivesMessages: true, // getUpdates 长轮询
+  };
   private readonly baseUrl: string;
   private offset = 0;
   private polling = false;
@@ -44,8 +51,16 @@ export class TelegramBotAdapter extends BaseBotAdapter {
     this.baseUrl = options.baseUrl ?? `https://api.telegram.org/bot${options.token}`;
   }
 
-  async sendText(chatId: string, text: string): Promise<unknown> {
-    return this.call("sendMessage", { chat_id: chatId, text });
+  /**
+   * 发送文本消息。传入 `replyToMessageId` 时会在原消息上下文中回复（体现
+   * `capabilities.contextualReply`），否则视为主动推送到 chatId。
+   */
+  async sendText(chatId: string, text: string, replyToMessageId?: string): Promise<unknown> {
+    return this.call("sendMessage", {
+      chat_id: chatId,
+      text,
+      ...(replyToMessageId ? { reply_to_message_id: Number(replyToMessageId) } : {}),
+    });
   }
 
   override async start(): Promise<void> {

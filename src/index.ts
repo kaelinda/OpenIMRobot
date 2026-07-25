@@ -2,6 +2,8 @@ export * from "./types.js";
 export * from "./core/errors.js";
 export * from "./core/http.js";
 export * from "./core/token-provider.js";
+export * from "./core/idempotency.js";
+export * from "./core/outbound.js";
 export * from "./core/base-adapter.js";
 export * from "./core/bot-manager.js";
 

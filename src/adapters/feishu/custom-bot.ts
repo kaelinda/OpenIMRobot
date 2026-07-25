@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
+import type { AdapterCapabilities } from "../../types.js";
 
 export interface FeishuCustomBotOptions {
   /** 群设置中添加自定义机器人后获得的 Webhook 地址 */
@@ -23,6 +24,13 @@ interface FeishuWebhookResponse {
  */
 export class FeishuCustomBotAdapter extends BaseBotAdapter {
   readonly platform = "feishu" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: false,
+    proactiveSend: true,
+    interactiveCards: true,
+    markdown: true,
+    receivesMessages: false, // Webhook 型自定义机器人仅支持单向推送
+  };
 
   constructor(private readonly options: FeishuCustomBotOptions) {
     super();

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { IncomingMessage, Platform } from "../types.js";
+import type { AdapterCapabilities, IncomingMessage, Platform } from "../types.js";
 
 /**
  * 所有平台适配器的基类：统一发送接口 + 统一的入站消息事件。
@@ -8,6 +8,8 @@ import type { IncomingMessage, Platform } from "../types.js";
  */
 export abstract class BaseBotAdapter extends EventEmitter {
   abstract readonly platform: Platform;
+  /** 能力声明，业务/Agent 层应据此显式降级而非依赖运行时报错 */
+  abstract readonly capabilities: AdapterCapabilities;
 
   /** 发送纯文本消息，target 含义随平台而定（chat_id / webhook 固定群等） */
   abstract sendText(target: string, text: string): Promise<unknown>;

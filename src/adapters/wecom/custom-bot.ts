@@ -1,6 +1,8 @@
 import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
+import { withRetry } from "../../core/outbound.js";
+import type { AdapterCapabilities } from "../../types.js";
 
 export interface WeComCustomBotOptions {
   /** 群聊右键菜单添加机器人后获得的 Webhook 地址（含 key 参数） */
@@ -18,6 +20,13 @@ interface WeComWebhookResponse {
  */
 export class WeComCustomBotAdapter extends BaseBotAdapter {
   readonly platform = "wecom" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: false,
+    proactiveSend: true,
+    interactiveCards: false,
+    markdown: true,
+    receivesMessages: false, // Webhook 型群机器人仅支持单向推送
+  };
 
   constructor(private readonly options: WeComCustomBotOptions) {
     super();
@@ -35,9 +44,15 @@ export class WeComCustomBotAdapter extends BaseBotAdapter {
   }
 
   private async send(payload: Record<string, unknown>): Promise<unknown> {
-    const { data, response } = await requestJson<WeComWebhookResponse>(
-      this.options.webhookUrl,
-      { method: "POST", body: JSON.stringify(payload) },
+    // 用 withRetry 包裹传输层调用：只重试网络异常/JSON 解析失败等瞬时故障，
+    // 不重试下面基于已解析响应判断出的业务错误（errcode !== 0），避免把确定性错误当瞬时故障重试。
+    const { data, response } = await withRetry(
+      () =>
+        requestJson<WeComWebhookResponse>(this.options.webhookUrl, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      { maxAttempts: 3, baseDelayMs: 150, maxDelayMs: 1000 },
     );
     if (!response.ok || data.errcode !== 0) {
       throw new BotApiError("wecom", data.errmsg ?? `HTTP ${response.status}`, data);

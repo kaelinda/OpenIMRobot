@@ -2,6 +2,7 @@ import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
 import { TokenProvider } from "../../core/token-provider.js";
+import type { AdapterCapabilities } from "../../types.js";
 
 export type FeishuReceiveIdType =
   | "chat_id"
@@ -37,6 +38,13 @@ interface FeishuMessageResponse {
  */
 export class FeishuAppBotAdapter extends BaseBotAdapter {
   readonly platform = "feishu" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: false,
+    proactiveSend: true,
+    interactiveCards: true,
+    markdown: true,
+    receivesMessages: false, // 本版本未实现事件订阅回调，见 README
+  };
   private readonly baseUrl: string;
   private readonly tokenProvider: TokenProvider;
   private readonly defaultReceiveIdType: FeishuReceiveIdType;

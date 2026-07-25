@@ -2,6 +2,7 @@ import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
 import { requestJson } from "../../core/http.js";
 import { TokenProvider } from "../../core/token-provider.js";
+import type { AdapterCapabilities } from "../../types.js";
 
 export interface QQBotOptions {
   appId: string;
@@ -30,6 +31,13 @@ interface QQMessageResponse {
  */
 export class QQBotAdapter extends BaseBotAdapter {
   readonly platform = "qq" as const;
+  readonly capabilities: AdapterCapabilities = {
+    contextualReply: false,
+    proactiveSend: true,
+    interactiveCards: false,
+    markdown: false,
+    receivesMessages: false, // 依赖官方 WebSocket 网关，未纳入本版本
+  };
   private readonly baseUrl: string;
   private readonly tokenProvider: TokenProvider;
 
