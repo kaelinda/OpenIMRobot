@@ -6,54 +6,15 @@
 //   FEISHU_WEBHOOK_URL=... DINGTALK_WEBHOOK_URL=... node examples/connectivity-demo.mjs
 //
 // 未设置对应环境变量的平台会被跳过；至少需要配置一个平台才有意义。
+// 核心逻辑（resolveConnectivityChecksFromEnv / runConnectivityChecks）在 src/connectivity.ts
+// 中实现并有单元测试覆盖（tests/connectivity.test.ts），这里只是薄的 CLI 包装。
 import {
   BotManager,
-  FeishuCustomBotAdapter,
-  DingTalkCustomBotAdapter,
-  WeComCustomBotAdapter,
-  TelegramBotAdapter,
+  resolveConnectivityChecksFromEnv,
+  runConnectivityChecks,
 } from "../dist/index.js";
 
-const manager = new BotManager();
-const checks = [];
-
-if (process.env.FEISHU_WEBHOOK_URL) {
-  manager.register(
-    "feishu",
-    new FeishuCustomBotAdapter({
-      webhookUrl: process.env.FEISHU_WEBHOOK_URL,
-      secret: process.env.FEISHU_BOT_SECRET,
-    }),
-  );
-  checks.push({ name: "feishu", target: "_" });
-}
-
-if (process.env.DINGTALK_WEBHOOK_URL) {
-  manager.register(
-    "dingtalk",
-    new DingTalkCustomBotAdapter({
-      webhookUrl: process.env.DINGTALK_WEBHOOK_URL,
-      secret: process.env.DINGTALK_BOT_SECRET,
-    }),
-  );
-  checks.push({ name: "dingtalk", target: "_" });
-}
-
-if (process.env.WECOM_WEBHOOK_URL) {
-  manager.register(
-    "wecom",
-    new WeComCustomBotAdapter({ webhookUrl: process.env.WECOM_WEBHOOK_URL }),
-  );
-  checks.push({ name: "wecom", target: "_" });
-}
-
-if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-  manager.register(
-    "telegram",
-    new TelegramBotAdapter({ token: process.env.TELEGRAM_BOT_TOKEN }),
-  );
-  checks.push({ name: "telegram", target: process.env.TELEGRAM_CHAT_ID });
-}
+const checks = resolveConnectivityChecksFromEnv(process.env);
 
 if (checks.length === 0) {
   console.error(
@@ -67,16 +28,21 @@ if (checks.length === 0) {
   process.exit(1);
 }
 
-const text = `[openimrobot] 连通性测试 ${new Date().toISOString()}`;
-let hasFailure = false;
+const manager = new BotManager();
+for (const { name, adapter } of checks) {
+  manager.register(name, adapter);
+}
 
-for (const { name, target } of checks) {
-  try {
-    await manager.sendText(name, target, text);
-    console.log(`✅ ${name}: 发送成功`);
-  } catch (error) {
+const text = `[openimrobot] 连通性测试 ${new Date().toISOString()}`;
+const results = await runConnectivityChecks(manager, checks, text);
+
+let hasFailure = false;
+for (const result of results) {
+  if (result.ok) {
+    console.log(`✅ ${result.name}: 发送成功`);
+  } else {
     hasFailure = true;
-    console.error(`❌ ${name}: 发送失败 -`, error instanceof Error ? error.message : error);
+    console.error(`❌ ${result.name}: 发送失败 - ${result.error}`);
   }
 }
 

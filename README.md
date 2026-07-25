@@ -92,6 +92,10 @@ npm run demo:connectivity
 
 每个平台会输出 `✅ <platform>: 发送成功` 或 `❌ <platform>: 发送失败 - <原因>`；任一平台失败时进程以非 0 退出码结束。
 
+Demo 的核心逻辑（按环境变量解析待检查平台、逐个发送并收集成功/失败结果）拆分在 `src/connectivity.ts`
+中，`examples/connectivity-demo.mjs` 只是读取 `process.env` 并打印结果的薄 CLI 包装，单元测试见
+`tests/connectivity.test.ts`（环境变量解析的各种组合 + 成功/失败结果收集，均使用 fake adapter，无需真实凭证）。
+
 ## 开发
 
 ```bash
@@ -103,5 +107,5 @@ npm run build       # 编译到 dist/
 ## 状态说明
 
 本版本为基础框架 + 核心功能实现，已通过单元测试（HTTP 层以 mock fetch 验证签名与错误处理逻辑，
-另含幂等去重、出站重试/熔断的专项单测，共 30 个测试用例），尚未针对真实平台账号做端到端联调，
+另含幂等去重、出站重试/熔断、连通性检查逻辑的专项单测，共 41 个测试用例），尚未针对真实平台账号做端到端联调，
 接入生产环境前请自行验证。架构评审意见的落地情况与后续规划见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
