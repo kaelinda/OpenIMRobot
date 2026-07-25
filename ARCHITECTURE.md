@@ -1,11 +1,11 @@
 # 多平台 IM 机器人 SDK — 技术架构文档
 
-版本：v0.2 ｜ 语言：TypeScript ｜ 状态：在 v0.1（`BaseBotAdapter` + `BotManager` 基础框架）之上，按架构评审意见修订
+版本：v0.2.1 ｜ 语言：TypeScript ｜ 状态：在 v0.1（`BaseBotAdapter` + `BotManager` 基础框架）之上，按架构评审意见修订
 
 已实现平台：飞书（群 Webhook / 自建应用）、钉钉（群 Webhook）、企业微信（群 Webhook）、Telegram（长轮询收发）、QQ（群消息主动发送）
 候选评估平台（未实现）：Discord、Slack ｜ 明确不实现：个人微信机器人（原因见 `docs/im-bot-api-research.md` 第 5 节风险提示）
 
-> 本文档是 v0.1 draft 架构方案经评审后的修订版。评审给出的 10 项问题中，本版本落地了可以在**不推翻现有已测试实现**的前提下安全retrofit 的部分（#3/#4/#6/#7 的核心诉求，#1 的能力声明部分），其余需要配合"统一消息模型 + Adapter 契约"整体重构的部分（完整的 ReplyHandle/EventSink/EventQueue、Webhook 宿主解耦、Adapter 合约测试套件）显式列为 v0.3 计划，见第 8 章。这是一次务实的渐进式修订，而不是另起一套与已合并代码并行、互不兼容的实现。
+> 本文档是 v0.1 draft 架构方案经评审后的修订版。评审给出的 10 项问题中，本版本落地了可以在**不推翻现有已测试实现**的前提下安全retrofit 的部分（#3/#4/#6/#7 的核心诉求，#1 的能力声明部分），其余需要配合"统一消息模型 + Adapter 契约"整体重构的部分（完整的 ReplyHandle/EventSink/EventQueue、Webhook 宿主解耦、Adapter 合约测试套件）显式列为 v0.3 计划，见第 9 章。这是一次务实的渐进式修订，而不是另起一套与已合并代码并行、互不兼容的实现。
 
 ---
 
@@ -93,7 +93,7 @@ export interface AdapterCapabilities {
 
 ### 3.2 已知限制与 v0.3 计划
 
-评审原文建议的完整方案是把"原消息上下文回复、临时 sessionWebhook、主动推送、流式回复"拆成 `InboundEnvelope.reply: ReplyHandle`（带 `expiresAt`）+ `adapter.send(target, message)` 两条独立路径，并要求 ack/投递解耦（`EventSink`）、可插拔 `EventQueue`、Webhook 宿主抽象（`HttpRequest`/`HttpResponse`）。这些改动会改变 `IncomingMessage` 的字段结构和 `BaseBotAdapter` 的方法签名，属于破坏性变更，需要配合"统一消息模型"整体升级、并让所有 Adapter 一起迁移，而不是逐个 Adapter 打补丁。v0.2 先落地能力声明本身（低风险、立即可用、已有测试覆盖），完整的 Envelope/ReplyHandle/EventQueue/Webhook 解耦方案列入 v0.3（见第 8 章），到时会一次性迁移全部 Adapter 并配套 Adapter 合约测试套件（评审 #10）。
+评审原文建议的完整方案是把"原消息上下文回复、临时 sessionWebhook、主动推送、流式回复"拆成 `InboundEnvelope.reply: ReplyHandle`（带 `expiresAt`）+ `adapter.send(target, message)` 两条独立路径，并要求 ack/投递解耦（`EventSink`）、可插拔 `EventQueue`、Webhook 宿主抽象（`HttpRequest`/`HttpResponse`）。这些改动会改变 `IncomingMessage` 的字段结构和 `BaseBotAdapter` 的方法签名，属于破坏性变更，需要配合"统一消息模型"整体升级、并让所有 Adapter 一起迁移，而不是逐个 Adapter 打补丁。v0.2 先落地能力声明本身（低风险、立即可用、已有测试覆盖），完整的 Envelope/ReplyHandle/EventQueue/Webhook 解耦方案列入 v0.3（见第 9 章），到时会一次性迁移全部 Adapter 并配套 Adapter 合约测试套件（评审 #10）。
 
 ---
 
@@ -140,11 +140,30 @@ markFailed(key)    → 释放处理权，允许下一次重推重新 acquire（�
 
 `WeComCustomBotAdapter.send()` 已接入 `withRetry` 作为参考实现：只重试 `requestJson` 抛出的网络异常/JSON 解析失败等**瞬时**故障，不重试已解析响应后判断出的业务错误码（`errcode !== 0`），避免把确定性错误当瞬时故障重试（测试见 `tests/custom-bot-adapters.test.ts` 中 WeCom 相关用例，未因引入重试而改变断言/调用次数）。
 
-**尚未接入的部分**：飞书/钉钉/QQ 的其余出站调用、Telegram 的 `sendMessage`/`getUpdates` 尚未包装 `withRetry`/`CircuitBreaker`（Telegram 的轮询循环本身有隐式重试效果，见 `runPollLoop` 的 `try/catch` + 继续下一轮）；入站限流、每会话背压控制（评审 #7 的另一半：`globalConcurrency`/`perConversationConcurrency`）本版本未实现，因为当前没有需要背压保护的高并发入站处理管道（仅 Telegram 单一长轮询）。这部分随 v0.3 的 `BotEngine`/`EventQueue` 一并引入，见第 8 章。
+**尚未接入的部分**：飞书/钉钉/QQ 的其余出站调用、Telegram 的 `sendMessage`/`getUpdates` 尚未包装 `withRetry`/`CircuitBreaker`（Telegram 的轮询循环本身有隐式重试效果，见 `runPollLoop` 的 `try/catch` + 继续下一轮）；入站限流、每会话背压控制（评审 #7 的另一半：`globalConcurrency`/`perConversationConcurrency`）本版本未实现，因为当前没有需要背压保护的高并发入站处理管道（仅 Telegram 单一长轮询）。这部分随 v0.3 的 `BotEngine`/`EventQueue` 一并引入，见第 9 章。
 
 ---
 
-## 7. 安全（评审 #9，现状说明）
+## 7. 代码评审第二轮问题修复（Code Reviewer 反馈）
+
+v0.2 提交后，Code Reviewer 对代码做了独立走查（评审目标是 v0.2 之前的提交，部分意见与本文档的 v0.2 落地情况有出入，已在下方分别说明），发现两个真实存在、v0.2 也未涉及的缺陷，已在 v0.2.1 修复：
+
+- **🔴 Telegram 轮询错误会导致进程崩溃**：`runPollLoop` 原先在捕获异常后调用 `this.emit("error", error)`。Node `EventEmitter` 对保留事件名 `"error"` 有特殊语义——没有任何监听者时会直接抛出，未被上层捕获就会让整个进程崩溃。修复为使用自定义事件名 `pollError`（新增 `onPollError(listener)` 注册方法），不依赖调用方是否注册监听器都不会抛出；同时补充了指数退避 + 抖动（`pollErrorBackoffBaseMs`，上限 30 秒），避免对下游持续故障进行热重试。测试见 `tests/telegram-bot.test.ts`（验证不注册任何监听器时轮询错误也不会抛出未捕获异常）。
+- **🔴 飞书自定义机器人 `sendMarkdown()` 协议体错误**：原实现用 `msg_type: "post"` 富文本消息类型，内部却塞了一个 `{ tag: "md" }` 元素——飞书 `post` 消息的 element tag 是 `text`/`a`/`at`/`img` 等，不支持 markdown 渲染；真实飞书服务端会拒绝或错误渲染这条消息，但因原有测试只 mock `{code: 0}`、没有断言请求体，所以没被发现。修复为改用 `interactive` 卡片 + `tag: "markdown"` 元素（与 `FeishuAppBotAdapter.sendMarkdown()` 保持一致的正确协议），并新增请求体快照测试（`tests/custom-bot-adapters.test.ts`）。
+
+**关于"仓库没有新增 ARCHITECTURE.md"的反馈**：Code Reviewer 走查的是 `6d56de0`（v0.1 提交），本文档随 v0.2（`753bdfd`）已经新增并推送，走查时间点早于该提交落地，非本版本遗漏。
+
+**尚未处理、认为是真实但优先级较低的意见（记录在案，非本轮范围）**：
+
+- 🟡 **统一 `target` 参数语义不清**：`BotManager.sendText(name, target, text)` 对飞书/钉钉/企微的 Webhook 型 Adapter 而言 `target` 被忽略（固定发到 webhook 绑定的群），调用方容易误以为能按会话路由。当前只能靠方法签名里的 `_target` 命名和 JSDoc 提示；彻底解决需要把"固定目标 Webhook sender"和"按 target 路由 sender"建模成不同的类型，这个改动和 v0.3 的统一消息模型/Adapter 契约重构（见第 9 章）是同一批工作，不单独处理以避免产生两套不一致的方法签名。
+- 🟡 **HTTP 缺少超时/取消**：`requestJson` 没有默认 timeout/`AbortSignal`；`TelegramBotAdapter.stop()` 最坏情况需要等待一个完整长轮询周期（`pollingTimeoutSeconds`）才返回。
+- 🟡 **`BotManager.startAll()` 部分失败不回滚**：多个 Adapter 中若一个 `start()` 失败，已成功启动的其他 Adapter 不会被自动停止。
+
+这三项都是真实的健壮性问题，但都不是"当前功能会给出错误结果或崩溃"级别（不同于上面两个已修复的 🔴），标记为后续 v0.3 一并处理的技术债，避免为了赶单个意见而给 `BaseBotAdapter`/`BotManager` 引入和 v0.3 目标架构冲突的临时接口。
+
+---
+
+## 8. 安全（评审 #9，现状说明）
 
 - **加签**：飞书自定义机器人（HMAC-SHA256 时间戳签名）、钉钉自定义机器人（HMAC-SHA256 URL 签名）已实现出站加签，与官方文档一致。
 - **Token 缓存**：`TokenProvider` 统一处理飞书 `tenant_access_token`/QQ `access_token` 的缓存、并发刷新去重、`invalidate()` 手动失效。
@@ -155,7 +174,7 @@ markFailed(key)    → 释放处理权，允许下一次重推重新 acquire（�
 
 ---
 
-## 8. 后续规划（v0.3，明确列出未落地的评审项）
+## 9. 后续规划（v0.3，明确列出未落地的评审项）
 
 以下评审意见需要"统一消息模型 + Adapter 契约"整体重构才能落地，属于破坏性变更，本版本不做（避免半途而废的接口迁移）：
 

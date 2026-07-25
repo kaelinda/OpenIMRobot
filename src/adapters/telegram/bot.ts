@@ -9,6 +9,8 @@ export interface TelegramBotOptions {
   baseUrl?: string;
   /** getUpdates 长轮询的服务端等待秒数，默认 30 秒 */
   pollingTimeoutSeconds?: number;
+  /** 单次轮询失败后的退避基数（毫秒），默认 1000ms，指数退避+抖动，上限 30s */
+  pollErrorBackoffBaseMs?: number;
 }
 
 interface TelegramApiResponse<T> {
@@ -42,13 +44,26 @@ export class TelegramBotAdapter extends BaseBotAdapter {
     receivesMessages: true, // getUpdates 长轮询
   };
   private readonly baseUrl: string;
+  private readonly pollErrorBackoffBaseMs: number;
   private offset = 0;
   private polling = false;
   private pollLoop?: Promise<void>;
+  private consecutiveErrors = 0;
 
   constructor(private readonly options: TelegramBotOptions) {
     super();
     this.baseUrl = options.baseUrl ?? `https://api.telegram.org/bot${options.token}`;
+    this.pollErrorBackoffBaseMs = options.pollErrorBackoffBaseMs ?? 1000;
+  }
+
+  /**
+   * 注册轮询错误回调。Node `EventEmitter` 对保留事件名 `"error"` 有特殊语义：
+   * 没有任何监听者时会直接抛出并可能让进程崩溃。这里改用自定义事件名 `"pollError"`，
+   * 即使调用方不注册监听器，轮询错误也只会被内部捕获、记录、退避重试，不会终止进程。
+   */
+  onPollError(listener: (error: unknown) => void): this {
+    this.on("pollError", listener as (...args: unknown[]) => void);
+    return this;
   }
 
   /**
@@ -97,10 +112,22 @@ export class TelegramBotAdapter extends BaseBotAdapter {
             this.emitMessage(message);
           }
         }
+        this.consecutiveErrors = 0;
       } catch (error) {
-        this.emit("error", error);
+        this.consecutiveErrors += 1;
+        this.emit("pollError", error);
+        if (!this.polling) break;
+        await new Promise((resolve) => setTimeout(resolve, this.backoffDelayMs()));
       }
     }
+  }
+
+  /** 指数退避 + 抖动，上限 30 秒，避免对下游持续故障进行热重试 */
+  private backoffDelayMs(): number {
+    const capped = Math.min(this.consecutiveErrors, 6); // 2^6 * base ≈ 64x base
+    const exponential = this.pollErrorBackoffBaseMs * 2 ** (capped - 1);
+    const withCap = Math.min(exponential, 30_000);
+    return Math.floor(withCap * (0.5 + Math.random() * 0.5));
   }
 
   private async call<T>(method: string, payload: Record<string, unknown>): Promise<T> {

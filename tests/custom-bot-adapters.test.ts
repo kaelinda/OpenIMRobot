@@ -33,6 +33,18 @@ describe("FeishuCustomBotAdapter", () => {
     await expect(bot.sendText("_", "你好")).rejects.toThrow(BotApiError);
   });
 
+  it("sendMarkdown 发送 interactive 卡片而不是错误的 post+md 协议体", async () => {
+    const fetchMock = mockFetch({ code: 0, msg: "success" });
+    vi.stubGlobal("fetch", fetchMock);
+    const bot = new FeishuCustomBotAdapter({ webhookUrl: "https://open.feishu.cn/webhook/xxx" });
+
+    await bot.sendMarkdown("_", "**hello**");
+
+    const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(sentBody.msg_type).toBe("interactive");
+    expect(sentBody.card.elements).toEqual([{ tag: "markdown", content: "**hello**" }]);
+  });
+
   it("配置 secret 时会附带 timestamp 与 sign", async () => {
     const fetchMock = mockFetch({ code: 0, msg: "success" });
     vi.stubGlobal("fetch", fetchMock);

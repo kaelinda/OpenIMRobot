@@ -41,16 +41,12 @@ export class FeishuCustomBotAdapter extends BaseBotAdapter {
   }
 
   async sendMarkdown(_target: string, markdown: string): Promise<unknown> {
-    return this.send({
-      msg_type: "post",
-      content: {
-        post: {
-          zh_cn: {
-            title: "",
-            content: [[{ tag: "md", text: markdown }]],
-          },
-        },
-      },
+    // 飞书没有 msg_type: "post" + tag: "md" 这种组合：post 富文本消息的 element tag
+    // 是 text/a/at/img 等，不支持 markdown；markdown 渲染需要走 interactive 卡片的
+    // markdown 元素（与 FeishuAppBotAdapter.sendMarkdown 保持一致）。
+    return this.sendCard({
+      config: { wide_screen_mode: true },
+      elements: [{ tag: "markdown", content: markdown }],
     });
   }
 
