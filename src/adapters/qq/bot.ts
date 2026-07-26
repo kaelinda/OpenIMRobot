@@ -37,6 +37,7 @@ export class QQBotAdapter extends BaseBotAdapter {
     interactiveCards: false,
     markdown: false,
     receivesMessages: false, // 依赖官方 WebSocket 网关，未纳入本版本
+    streamingOutput: false, // 未实现消息编辑/撤回，当前只支持一次性发送
   };
   private readonly baseUrl: string;
   private readonly tokenProvider: TokenProvider;

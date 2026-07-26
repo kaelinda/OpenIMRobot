@@ -1,6 +1,6 @@
 # 多平台 IM 机器人 SDK — 技术架构文档
 
-版本：v0.2.1 ｜ 语言：TypeScript ｜ 状态：在 v0.1（`BaseBotAdapter` + `BotManager` 基础框架）之上，按架构评审意见修订
+版本：v0.2.2 ｜ 语言：TypeScript ｜ 状态：在 v0.1（`BaseBotAdapter` + `BotManager` 基础框架）之上，按架构评审意见修订
 
 已实现平台：飞书（群 Webhook / 自建应用）、钉钉（群 Webhook）、企业微信（群 Webhook）、Telegram（长轮询收发）、QQ（群消息主动发送）
 候选评估平台（未实现）：Discord、Slack ｜ 明确不实现：个人微信机器人（原因见 `docs/im-bot-api-research.md` 第 5 节风险提示）
@@ -75,23 +75,58 @@ export interface AdapterCapabilities {
   interactiveCards: boolean;  // 富交互卡片
   markdown: boolean;          // Markdown / 富文本
   receivesMessages: boolean;  // 是否支持接收消息
+  streamingOutput: boolean;   // 能否流式输出（见 3.3 节）
 }
 ```
 
 各 Adapter 的能力声明如实反映当前实现（而不是平台协议理论上的上限）：
 
-| Adapter | contextualReply | proactiveSend | interactiveCards | markdown | receivesMessages |
-|---|---|---|---|---|---|
-| `FeishuCustomBotAdapter` | ❌ | ✅ | ✅（`sendCard`） | ✅ | ❌（Webhook 单向推送） |
-| `FeishuAppBotAdapter` | ❌ | ✅ | ✅（markdown 交互卡片） | ✅ | ❌（本版本未实现事件订阅） |
-| `DingTalkCustomBotAdapter` | ❌ | ✅ | ❌ | ✅ | ❌ |
-| `WeComCustomBotAdapter` | ❌ | ✅ | ❌ | ✅ | ❌ |
-| `QQBotAdapter` | ❌ | ✅ | ❌ | ❌ | ❌（依赖官方 WebSocket 网关，未实现） |
-| `TelegramBotAdapter` | ✅（`reply_to_message_id`） | ✅ | ❌ | ❌（未设置 `parse_mode`） | ✅（`getUpdates` 长轮询） |
+| Adapter | contextualReply | proactiveSend | interactiveCards | markdown | receivesMessages | streamingOutput |
+|---|---|---|---|---|---|---|
+| `FeishuCustomBotAdapter` | ❌ | ✅ | ✅（`sendCard`） | ✅ | ❌（Webhook 单向推送） | ❌ |
+| `FeishuAppBotAdapter` | ❌ | ✅ | ✅（markdown 交互卡片） | ✅ | ❌（本版本未实现事件订阅） | ✅（`sendStreamingText`） |
+| `DingTalkCustomBotAdapter` | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| `WeComCustomBotAdapter` | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| `QQBotAdapter` | ❌ | ✅ | ❌ | ❌ | ❌（依赖官方 WebSocket 网关，未实现） | ❌ |
+| `TelegramBotAdapter` | ✅（`reply_to_message_id`） | ✅ | ❌ | ❌（未设置 `parse_mode`） | ✅（`getUpdates` 长轮询） | ✅（`sendStreamingText`） |
 
 `TelegramBotAdapter.sendText(chatId, text, replyToMessageId?)` 新增第三个可选参数，传入时会在原消息上下文中回复，体现 `contextualReply` 能力；不传则视为主动推送。业务/Agent 层在调用前应检查 `adapter.capabilities`，对不支持的能力做显式降级（例如目标平台不支持交互卡片时退化为纯文本），而不是依赖运行时抛错。
 
-### 3.2 已知限制与 v0.3 计划
+### 3.3 流式输出等"实例级开关"的架构设计（本轮新增）
+
+**问题**：飞书交互卡片、Telegram `editMessageText`、（未来可能的）钉钉 Stream 模式，都能在协议层面支持"先发一条消息、再多次增量更新同一条消息"，用来模拟大模型逐字/逐段输出的观感。但每个平台的实现机制完全不同（飞书是 `PATCH /im/v1/messages/:message_id` 更新卡片、Telegram 是 `editMessageText`），如果每个 Adapter 各自发明一套构造参数命名（`enableStream`/`streaming`/`useSSE`...）和调用约定，业务层要为每个平台学一套新 API，也会让"新增一个平台"这件事重新变得侵入式——这正是评审反复强调要避免的"过度多样化"。
+
+**设计**：把"能力"和"开关"拆成两层，复用已有的 `AdapterCapabilities` 分层思路：
+
+1. **`AdapterCapabilities.streamingOutput`**（协议层面能不能）：与其余能力字段同一套语义，Webhook 单向推送型 Adapter（飞书/钉钉/企微自定义机器人、QQ）因为拿不到可回查的消息句柄，天然为 `false`。
+2. **`AdapterFeatureToggles`**（这个实例要不要启用，`src/types.ts`）：目前只有 `streamingOutput?: boolean` 一个字段，未来如果要加新的开关（例如 typing indicator），约定是在这个接口里加一个字段，而不是让每个 Adapter 单独发明构造参数。
+3. **`resolveFeatureToggles(platform, capabilities, requested)`**（`src/core/features.ts`）：所有 Adapter 的开关合并逻辑都走这一个函数——未显式传入的开关默认关闭；请求打开一个 `capabilities` 不支持的开关，在**构造时**立即抛错，而不是留到调用 `sendStreamingText` 才失败（呼应 1.2 节"诚实的投递语义"一贯坚持的尽早暴露错误原则）。
+4. **`BaseBotAdapter.sendStreamingText?(target, initialText): Promise<StreamingHandle>`**（可选方法，`src/core/base-adapter.ts`）：与 `sendMarkdown?` 同样的"可选方法"模式——只有声明支持的 Adapter 才实现。`StreamingHandle`（`src/types.ts`）只有两个方法：`update(text)` 增量更新、`finish(finalText?)` 收尾，刻意不暴露任何平台专属细节（`message_id` 全部被闭包捕获在 Adapter 内部，调用方拿到的句柄和平台无关）。
+
+已实现两个参考实现，验证同一套契约能覆盖两种完全不同的协议：
+
+- `FeishuAppBotAdapter.sendStreamingText`：创建一张 `interactive` markdown 卡片作为载体，`update`/`finish` 通过 `PATCH /im/v1/messages/:message_id` 更新卡片内容（飞书没有"编辑纯文本消息"的接口，只有卡片支持内容更新）。
+- `TelegramBotAdapter.sendStreamingText`：`sendMessage` 创建消息后，`update`/`finish` 通过 `editMessageText` 更新同一条消息。
+
+用法示例：
+
+```typescript
+const bot = new FeishuAppBotAdapter({
+  appId, appSecret,
+  features: { streamingOutput: true }, // 显式开启，默认关闭
+});
+
+const handle = await bot.sendStreamingText(chatId, "正在生成…");
+for await (const chunk of tokenStream) {
+  accumulated += chunk;
+  await handle.update(accumulated);
+}
+await handle.finish(accumulated);
+```
+
+**明确不做的部分（避免半途而废）**：不做"自动按 token 到达节奏节流合并 update 调用"这类速率控制（各平台的编辑频率限制不同，飞书/Telegram 都有"编辑过于频繁会被限流"的限制，业务层应自行按需节流，核心库不替业务层做决策）；不做 v0.3 计划中"富消息模型"要求的 `content` 联合类型改造，`sendStreamingText` 当前只接受纯文本/markdown 字符串，与现有 `sendText`/`sendMarkdown` 保持一致的输入形态，不引入新的消息内容表示法。
+
+### 3.4 已知限制与 v0.3 计划
 
 评审原文建议的完整方案是把"原消息上下文回复、临时 sessionWebhook、主动推送、流式回复"拆成 `InboundEnvelope.reply: ReplyHandle`（带 `expiresAt`）+ `adapter.send(target, message)` 两条独立路径，并要求 ack/投递解耦（`EventSink`）、可插拔 `EventQueue`、Webhook 宿主抽象（`HttpRequest`/`HttpResponse`）。这些改动会改变 `IncomingMessage` 的字段结构和 `BaseBotAdapter` 的方法签名，属于破坏性变更，需要配合"统一消息模型"整体升级、并让所有 Adapter 一起迁移，而不是逐个 Adapter 打补丁。v0.2 先落地能力声明本身（低风险、立即可用、已有测试覆盖），完整的 Envelope/ReplyHandle/EventQueue/Webhook 解耦方案列入 v0.3（见第 9 章），到时会一次性迁移全部 Adapter 并配套 Adapter 合约测试套件（评审 #10）。
 

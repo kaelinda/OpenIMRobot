@@ -26,6 +26,7 @@ export class WeComCustomBotAdapter extends BaseBotAdapter {
     interactiveCards: false,
     markdown: true,
     receivesMessages: false, // Webhook 型群机器人仅支持单向推送
+    streamingOutput: false, // Webhook 响应不含消息句柄，无法回查/更新已发送的消息
   };
 
   constructor(private readonly options: WeComCustomBotOptions) {

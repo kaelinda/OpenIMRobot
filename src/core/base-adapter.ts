@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { AdapterCapabilities, IncomingMessage, Platform } from "../types.js";
+import type { AdapterCapabilities, IncomingMessage, Platform, StreamingHandle } from "../types.js";
 
 /**
  * 所有平台适配器的基类：统一发送接口 + 统一的入站消息事件。
@@ -16,6 +16,13 @@ export abstract class BaseBotAdapter extends EventEmitter {
 
   /** 发送 Markdown / 富文本消息，非所有平台都在基础版本中实现 */
   sendMarkdown?(target: string, markdown: string): Promise<unknown>;
+
+  /**
+   * 以流式方式发送消息：创建一条消息后返回 `StreamingHandle`，通过 `update` 增量更新内容。
+   * 仅当 `capabilities.streamingOutput` 为 true 且构造时开启了 `features.streamingOutput`
+   * 的 Adapter 才实现此方法（见 `core/features.ts` 的 `resolveFeatureToggles`）。
+   */
+  sendStreamingText?(target: string, initialText: string): Promise<StreamingHandle>;
 
   async start(): Promise<void> {
     // 默认无需启动：纯 Webhook 推送型适配器没有常驻连接

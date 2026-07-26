@@ -50,4 +50,34 @@ export interface AdapterCapabilities {
   markdown: boolean;
   /** 是否需要接收消息（Webhook 单向推送型适配器为 false） */
   receivesMessages: boolean;
+  /**
+   * 协议层面能否流式输出：创建一条消息后，通过增量更新同一条消息的内容来模拟"逐字/逐段输出"
+   * （例如飞书卡片的 PATCH 更新、Telegram 的 editMessageText）。Webhook 单向推送型适配器
+   * （飞书/钉钉/企微自定义机器人）拿不到可回查的消息句柄，天然为 false。
+   * 这只是"能不能"的声明，实例是否真的启用见 `AdapterFeatureToggles.streamingOutput`。
+   */
+  streamingOutput: boolean;
+}
+
+/**
+ * 实例级开关声明，与 `AdapterCapabilities`（协议层面能不能）分开建模：
+ * capabilities 回答"这个 Adapter 类支持不支持"，features 回答"这个实例要不要启用"。
+ * 未显式传入的开关一律视为关闭；请求打开一个 capabilities 不支持的开关是调用方的配置错误，
+ * 在构造时立即抛错（见 `core/features.ts` 的 `resolveFeatureToggles`），而不是留到发送时才失败。
+ *
+ * 这是本项目对"各平台各自的开关"的统一建模方式：新增一个开关（未来可能是 typingIndicator 等）
+ * 只需要在这里加一个字段、在 `resolveFeatureToggles` 里加一行合并逻辑，而不是让每个 Adapter
+ * 各自发明一套构造参数命名和语义（避免评审关注的"过度多样化"）。
+ */
+export interface AdapterFeatureToggles {
+  streamingOutput?: boolean;
+}
+
+/**
+ * 流式输出的发送句柄：`sendStreamingText` 创建一条消息后返回该句柄，
+ * 调用方通过 `update` 增量推送内容、`finish` 收尾（可选传入最终全文，兜底覆盖为一致的最终态）。
+ */
+export interface StreamingHandle {
+  update(text: string): Promise<unknown>;
+  finish(finalText?: string): Promise<unknown>;
 }

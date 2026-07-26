@@ -1,7 +1,13 @@
 import { BaseBotAdapter } from "../../core/base-adapter.js";
 import { BotApiError } from "../../core/errors.js";
+import { resolveFeatureToggles } from "../../core/features.js";
 import { requestJson } from "../../core/http.js";
-import type { AdapterCapabilities, IncomingMessage } from "../../types.js";
+import type {
+  AdapterCapabilities,
+  AdapterFeatureToggles,
+  IncomingMessage,
+  StreamingHandle,
+} from "../../types.js";
 
 export interface TelegramBotOptions {
   /** BotFather 签发的 Bot Token */
@@ -11,12 +17,18 @@ export interface TelegramBotOptions {
   pollingTimeoutSeconds?: number;
   /** 单次轮询失败后的退避基数（毫秒），默认 1000ms，指数退避+抖动，上限 30s */
   pollErrorBackoffBaseMs?: number;
+  /** 实例级开关，见 `AdapterFeatureToggles`；`streamingOutput` 默认关闭，需显式开启 */
+  features?: AdapterFeatureToggles;
 }
 
 interface TelegramApiResponse<T> {
   ok: boolean;
   result?: T;
   description?: string;
+}
+
+interface TelegramMessageResult {
+  message_id: number;
 }
 
 interface TelegramUpdate {
@@ -42,9 +54,11 @@ export class TelegramBotAdapter extends BaseBotAdapter {
     interactiveCards: false,
     markdown: false, // 未设置 parse_mode，当前按纯文本发送
     receivesMessages: true, // getUpdates 长轮询
+    streamingOutput: true, // 通过 editMessageText 增量更新已发送的消息实现
   };
   private readonly baseUrl: string;
   private readonly pollErrorBackoffBaseMs: number;
+  private readonly features: Readonly<Required<AdapterFeatureToggles>>;
   private offset = 0;
   private polling = false;
   private pollLoop?: Promise<void>;
@@ -54,6 +68,7 @@ export class TelegramBotAdapter extends BaseBotAdapter {
     super();
     this.baseUrl = options.baseUrl ?? `https://api.telegram.org/bot${options.token}`;
     this.pollErrorBackoffBaseMs = options.pollErrorBackoffBaseMs ?? 1000;
+    this.features = resolveFeatureToggles(this.platform, this.capabilities, options.features);
   }
 
   /**
@@ -76,6 +91,31 @@ export class TelegramBotAdapter extends BaseBotAdapter {
       text,
       ...(replyToMessageId ? { reply_to_message_id: Number(replyToMessageId) } : {}),
     });
+  }
+
+  /**
+   * 以流式方式发送消息：先 `sendMessage` 创建一条消息，再通过 `editMessageText`
+   * 增量更新同一条消息的内容模拟流式输出。
+   */
+  override async sendStreamingText(chatId: string, initialText: string): Promise<StreamingHandle> {
+    if (!this.features.streamingOutput) {
+      throw new Error(
+        "[telegram] streamingOutput 开关未启用：构造 TelegramBotAdapter 时传入 features: { streamingOutput: true }",
+      );
+    }
+    const created = await this.call<TelegramMessageResult>("sendMessage", {
+      chat_id: chatId,
+      text: initialText,
+    });
+    const messageId = created.message_id;
+    return {
+      update: (text: string) =>
+        this.call("editMessageText", { chat_id: chatId, message_id: messageId, text }),
+      finish: (finalText?: string) =>
+        finalText === undefined
+          ? Promise.resolve(undefined)
+          : this.call("editMessageText", { chat_id: chatId, message_id: messageId, text: finalText }),
+    };
   }
 
   override async start(): Promise<void> {
